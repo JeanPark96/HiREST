@@ -13,7 +13,7 @@ from modules.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from modules.modeling import CaptionGenerator
 from train import collect_hypothesis_and_scores, collate_active_info, beam_decode_step, get_inst_idx_to_tensor_position_map
 from modules.beam import Beam
-
+from utils import interpret
 
 class MomentModel(nn.Module):
 
@@ -142,7 +142,7 @@ class MomentModel(nn.Module):
 
     def test_step(self, batch, **kwargs):
         task = batch['tasks'][0]
-
+        #print(batch)
         if task == 'moment_retrieval':
             return self.test_moment_retrieval(batch, **kwargs)
         elif task == 'moment_segmentation':
@@ -154,16 +154,16 @@ class MomentModel(nn.Module):
 
     def foward_moment_shared(self, video_feats, text_feat, video_mask=None, moment_mask=None, asr_feats=None, boundary_mask=None):
         B, max_n_frames, embed_dim = video_feats.size()
-
+        #print(video_feats.shape)
         video_feats = self.clip_g_map(video_feats)
         text_feat = self.clip_g_map_text(text_feat)
-        
+        #print(video_feats.shape)
         video_feats = self.clip4cap_model.normalize_video(video_feats)
 
         text_feat = text_feat / text_feat.norm(dim=-1, keepdim=True)
 
         feats = video_feats * text_feat.unsqueeze(1)
-
+        
         if self.use_asr:
             asr_feats = self.asr_enc_layer(asr_feats)
             feats += asr_feats
@@ -181,7 +181,7 @@ class MomentModel(nn.Module):
         normalized_times = []
         max_n_frames = max(n_frames_batch)
         for n_frames in n_frames_batch:
-
+            #print(n_frames, feats.shape[1])
             # [0, 1] -> [-0.5, 0.5] ->  [-1, 1]
             normalized_time = (torch.linspace(0, 1, n_frames) - 0.5) * 2
 
@@ -191,8 +191,10 @@ class MomentModel(nn.Module):
             normalized_times.append(normzlied_time)
 
         normalized_times = torch.cat(normalized_times, dim=0).to(video_feats.device)
-
         temporal_embed = self.temporal_embed(normalized_times)
+        #print(video_feats.shape, text_feat.shape, feats.shape, temporal_embed.shape, normalized_times.shape)
+
+        #print(temporal_embed.shape)
         feats += temporal_embed
 
         mask_embed = self.mask_embed(moment_mask)
@@ -273,10 +275,10 @@ class MomentModel(nn.Module):
     def test_moment_retrieval(self, batch, **kwargs):
         device = next(self.parameters()).device
         video_feats = batch['vis_feats'].to(device)
-
+        #print(batch['vis_feats'].shape)
         video_mask = batch['vis_mask'].to(device)
         moment_mask = batch['moment_mask'].to(device)
-
+        asr_feats = None
         if self.use_asr:
             asr_feats = batch['asr_feats'].to(device)
 

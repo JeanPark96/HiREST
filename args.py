@@ -11,6 +11,7 @@ def get_parser():
 
     # Data directories
     parser.add_argument('--data_dir', type=str, required=True)
+    parser.add_argument('--data_path', type=str, required=True)
     parser.add_argument('--video_feature_dir', type=str, required=True)
     parser.add_argument('--asr_dir', type=str, required=False)
     parser.add_argument('--asr_feature_dir', type=str, required=False)

@@ -128,6 +128,8 @@ class MomentDataset(Dataset):
 
             has_relevant_videos = False
             for video_fname, video_ann in video_anns.items():
+                if not video_fname.endswith('mp4'):
+                    continue
                 if not video_ann['relevant']:
                     continue
                 if not video_ann['clip']:
@@ -329,32 +331,40 @@ class MomentDataset(Dataset):
             video_fname = datum['fname']
             video_feature_path = self.video_feature_dir / f'{video_fname}.pt'
             video_features = torch.load(video_feature_path, map_location='cpu')
+            if not torch.is_tensor(video_features):
+                print(video_feature_path)
+                print(len(video_features))
+                print(video_features)
+                print(video_fname)
+            if torch.is_tensor(video_features):
+                
+                if self.n_model_frames > 0:
+                    n_frames = video_features.shape[0]
+                    # Uniformly subsample via linspace
+                    if n_frames > self.n_model_frames:
+                        frame_ids = np.linspace(
+                            0, n_frames - 1, self.n_model_frames).astype(int)
+                        frame_ids = torch.from_numpy(frame_ids)
+                        video_features = video_features[frame_ids]
+                    else:
+                        x = torch.zeros((self.n_model_frames, video_features.shape[1]))
+                        count_embeds = [ 0 ] * self.n_model_frames
+                        N: int = video_features.shape[0]
 
-            if self.n_model_frames > 0:
-                n_frames = video_features.shape[0]
-                # Uniformly subsample via linspace
-                if n_frames > self.n_model_frames:
-                    frame_ids = np.linspace(
-                        0, n_frames - 1, self.n_model_frames).astype(int)
-                    frame_ids = torch.from_numpy(frame_ids)
-                    video_features = video_features[frame_ids]
-                else:
-                    x = torch.zeros((self.n_model_frames, video_features.shape[1]))
-                    count_embeds = [ 0 ] * self.n_model_frames
-                    N: int = video_features.shape[0]
+                        count_embeds = [ count_embeds[(j*self.n_model_frames) // N : ((j+1)*self.n_model_frames) // N] for j in range(N) ]
 
-                    count_embeds = [ count_embeds[(j*self.n_model_frames) // N : ((j+1)*self.n_model_frames) // N] for j in range(N) ]
+                        j = 0
+                        for k in range(len(count_embeds)):
+                            for _ in count_embeds[k]:
+                                x[j] = video_features[k]
+                                j += 1
+                        
+                        video_features = x.clone()
 
-                    j = 0
-                    for k in range(len(count_embeds)):
-                        for _ in count_embeds[k]:
-                            x[j] = video_features[k]
-                            j += 1
-                    
-                    video_features = x.clone()
+                out['vis_feats'] = video_features
 
-            out['vis_feats'] = video_features
-
+        if not torch.is_tensor(video_features):
+            return
 
         if len(self.videoid2asr) > 0:
             video_fname = datum['fname']
@@ -368,7 +378,7 @@ class MomentDataset(Dataset):
             asr_features = torch.load(asr_feature_path, map_location='cpu')
 
             # warping
-
+            
             dim = asr_features.shape[1]
             len_vid = video_features.shape[0]
 
@@ -407,8 +417,10 @@ class MomentDataset(Dataset):
         return out
 
     def collate_fn(self, batch):
+        #print(batch)
         out_batch = {}
-
+        # if not isinstance(batch, list):
+        #     batch = [batch]
         if 'target_text' in batch[0]:
             target_text = [datum['target_text'] for datum in batch]
             out_batch['target_text'] = target_text
@@ -416,7 +428,6 @@ class MomentDataset(Dataset):
         if 'target_text_raw' in batch[0]:
             target_text_raw = [datum['target_text_raw'] for datum in batch]
             out_batch['target_text_raw'] = target_text_raw
-
 
         if 'vis_feats' in batch[0]:
 
@@ -449,7 +460,10 @@ class MomentDataset(Dataset):
                 video_mask = []
                 for datum in batch:
                     n_pad = max_video_feat_len - datum['vis_feats'].shape[0]
+                    #print(datum['fname'], torch.cat([datum['video_mask'], torch.zeros(n_pad)], dim=0).shape)
                     video_mask.append(torch.cat([datum['video_mask'], torch.zeros(n_pad)], dim=0))
+                    #print(n_pad, max_video_feat_len, datum['vis_feats'].shape, datum['video_mask'].shape)
+                #print(video_mask)
                 video_mask = torch.stack(video_mask)
 
             out_batch['vis_mask'] = video_mask.long()
@@ -586,7 +600,7 @@ def get_moment_loader(args, split='train', batch_size=32, task='moment_retrieval
     if 'temp' in str(args.data_dir):
         data_path = Path(args.data_dir) / f'temp_data_{split}.json'
     else:
-        data_path = Path(args.data_dir) / f'all_data_{split}.json'
+        data_path = Path(args.data_path+".json")
 
     dataset = MomentDataset(
         args,
@@ -608,6 +622,7 @@ def get_moment_loader(args, split='train', batch_size=32, task='moment_retrieval
         sampler = None
 
     if split == 'train':
+        print("############## train")
         loader = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -618,6 +633,7 @@ def get_moment_loader(args, split='train', batch_size=32, task='moment_retrieval
             collate_fn=dataset.collate_fn
         )
     else:
+        print("#############non train")
         loader = DataLoader(
             dataset,
             batch_size=batch_size,

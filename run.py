@@ -43,9 +43,9 @@ class Trainer(TrainerBase):
         print('tasks:', self.tasks)
 
         asr_dim = -1
-        if 'clip' in args.asr_feature_dir.lower():
+        if args.asr_feature_dir != None and 'clip' in args.asr_feature_dir.lower():
             asr_dim = 512
-        elif 'minilm'in args.asr_feature_dir.lower():
+        elif args.asr_feature_dir != None and 'minilm'in args.asr_feature_dir.lower():
             asr_dim = 384
 
 
@@ -73,6 +73,7 @@ class Trainer(TrainerBase):
                 ckpt_path = args.load + '.pth'
             else:
                 ckpt_path = args.load
+            print(f"load ckpt_path :{ckpt_path}")
             self.load_checkpoint(ckpt_path)
 
         # GPU Options
@@ -383,7 +384,7 @@ class Trainer(TrainerBase):
         if args.end_to_end:
             import shutil
 
-            shutil.copyfile(f"{args.data_dir}/all_data_test.json", f"{args.data_dir}/all_data_test_original.json")
+            shutil.copyfile(f"{args.data_path}.json", f"{args.data_path}_original.json")
 
             if 'moment_retrieval' in self.tasks:
                 moments = self.evaluate(self.test_moment_retrieval_loader, has_target=False)
@@ -393,7 +394,7 @@ class Trainer(TrainerBase):
                     json.dump(moments, f, indent=4)
                     print(f'Saved {moment_retrieval_dump_path}')
                 
-                shutil.copyfile(f"{args.data_dir}/all_data_test.json", f"{args.data_dir}/temp1.json")
+                shutil.copyfile(f"{args.data_path}.json", f"{args.data_dir}/temp1.json")
 
                 with open(f"{args.data_dir}/temp1.json", 'r') as f:
                     test = json.load(f)
@@ -415,7 +416,7 @@ class Trainer(TrainerBase):
                                     {"index": i, "heading": "", "absolute_bounds": [i, i+1]}
                                 )
                 
-                with open(f"{args.data_dir}/all_data_test.json", 'w') as f:
+                with open(f"{args.data_path}.json", 'w') as f:
                     json.dump(test, f, indent=2)
 
                 if 'moment_segmentation' in self.tasks:
@@ -433,7 +434,7 @@ class Trainer(TrainerBase):
                 with open(moment_segmentation_dump_path, 'w') as f:
                     json.dump(moments, f, indent=4)
 
-                shutil.copyfile(f"{args.data_dir}/all_data_test.json", f"{args.data_dir}/temp2.json")
+                shutil.copyfile(f"{args.data_path}.json", f"{args.data_dir}/temp2.json")
 
                 with open(f"{args.data_dir}/temp2.json", 'r') as f:
                     test = json.load(f)
@@ -452,7 +453,7 @@ class Trainer(TrainerBase):
                                     "absolute_bounds": bound
                                 })
 
-                with open(f"{args.data_dir}/all_data_test.json", 'w') as f:
+                with open(f"{args.data_path}.json", 'w') as f:
                     json.dump(test, f, indent=2)
 
                 if 'step_captioning' in self.tasks:
@@ -470,7 +471,7 @@ class Trainer(TrainerBase):
                 with open(step_captioning_dump_path, 'w') as f:
                     json.dump(moments, f, indent=4)
 
-                with open(f"{args.data_dir}/all_data_test.json", 'r') as f:
+                with open(f"{args.data_path}.json", 'r') as f:
                     test = json.load(f)
 
                     for prompt in test:
@@ -485,9 +486,9 @@ class Trainer(TrainerBase):
                     print(f"Final results saved too: {self.args.ckpt_dir}/final_end_to_end_results.json !")
 
                 
-                shutil.move(f"{args.data_dir}/all_data_test.json", f"{args.data_dir}/temp3.json")
+                shutil.move(f"{args.data_path}.json", f"{args.data_dir}/temp3.json")
                 
-            shutil.move(f"{args.data_dir}/all_data_test_original.json", f"{args.data_dir}/all_data_test.json")
+            shutil.move(f"{args.data_path}_original.json", f"{args.data_path}.json")
 
         else:
             if 'moment_retrieval' in self.tasks:
@@ -499,7 +500,7 @@ class Trainer(TrainerBase):
 
             if self.verbose:
                 if 'moment_retrieval' in self.tasks:
-                    moment_retrieval_dump_path = os.path.join(self.args.ckpt_dir, f'test_moment_retrieval_BEST.json')
+                    moment_retrieval_dump_path = os.path.join(f'{self.args.data_path}_moment_retrieval_BEST.json')
                     with open(moment_retrieval_dump_path, 'w') as f:
                         json.dump(test_moment_retrieval_results, f, indent=4)
                         print(f'Saved {moment_retrieval_dump_path}')
@@ -543,7 +544,7 @@ class Trainer(TrainerBase):
 
             task = loader.task
 
-            for i, batch in enumerate(tqdm(loader, ncols=120, desc=f"{task.capitalize()} Prediction", disable=not self.verbose)):
+            for i, batch in enumerate(tqdm(loader, ncols=120, desc=f"{task.capitalize()} Prediction", disable= self.verbose)):
 
                 if has_target:
                     if self.args.fp16 and _use_native_amp:
