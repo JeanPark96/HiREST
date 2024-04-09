@@ -4,10 +4,10 @@ import subprocess
 import multiprocessing
 import json
 import argparse
-
+import os
 def extract_audio(video_path):
     out_fname = out_dir / (video_path.stem + '.wav')
-
+    print(video_path)
     cmd = ['ffmpeg', '-i', str(video_path), '-vn', '-acodec', 'pcm_s16le', '-ac', '1', '-ar', '16000', '-f', 'wav',
             '-loglevel', 'warning', '-hide_banner', '-stats',
             str(out_fname)]
@@ -36,12 +36,14 @@ if __name__ == '__main__':
 
     video_fnames = list(set(video_fnames))
 
-    video_paths = [video_dir / video_fname for video_fname in video_fnames]
+    video_paths = [ video_dir / video_fname for video_fname in video_fnames if video_fname.endswith("mp4")]
 
     print(f'Found {len(video_paths)} videos at {video_dir}')
 
     print('Will save audio to', out_dir)
 
     print(f'Multiprocessing with {args.workers} workers')
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
     with multiprocessing.Pool(args.workers) as pool:
         list(tqdm(pool.imap(extract_audio, video_paths), total=len(video_paths)))

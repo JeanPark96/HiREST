@@ -600,7 +600,7 @@ def get_moment_loader(args, split='train', batch_size=32, task='moment_retrieval
     if 'temp' in str(args.data_dir):
         data_path = Path(args.data_dir) / f'temp_data_{split}.json'
     else:
-        data_path = Path(args.data_path+".json")
+        data_path = Path(args.data_path + f"_{split}.json")
 
     dataset = MomentDataset(
         args,

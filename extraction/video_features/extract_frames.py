@@ -9,6 +9,7 @@ from glob import glob
 
 def extract_frames_method2(video_path):
     video_path = video_path.replace("\n", "")
+    print(video_path)
     video_fname = Path(video_path).name
     x = str(VIDEOS_DIR / video_path)
     
@@ -65,6 +66,7 @@ if __name__ == "__main__":
 
     for prompt in tqdm(prompt2video_anns):
         for video_fname in prompt2video_anns[prompt]:
+
             if video_fname not in all_video_paths:
                 if os.path.exists(f"{VIDEOS_DIR}/{video_fname}"):
                     all_video_paths.append(video_fname)

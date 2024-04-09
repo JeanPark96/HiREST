@@ -5,6 +5,7 @@ from tqdm import tqdm
 from PIL import Image
 import sys
 import argparse
+import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--device", type=int, default=0)
@@ -40,11 +41,13 @@ def divide_chunks(l, n):
 BATCH_SIZE = args.batch_size
 
 for video in tqdm(videos, colour="green"):
+    # if  "house_s03e03_seg02_clip_01.mp4" not in video:
+    #     continue
     images = [ ]
     
     raw_images: list = glob(f"{video}/*.jpg")
     raw_images.sort(key=lambda x: int(x.split("/")[-1].replace(".jpg", "").split("_")[-1]))
-
+    print(len(raw_images))
     for image in raw_images:
         x = preprocess(Image.open(image)).cpu()
         images.append(x)
@@ -65,5 +68,11 @@ for video in tqdm(videos, colour="green"):
 
     # print(video)
     video_name = video.split("/")[-2]
-
+    
+    
+    if not torch.is_tensor(video_features):
+        print("not video features")
+        print(video_features)
+    if not os.path.exists(f"{args.save_path}"):
+        os.makedirs(f"{args.save_path}")
     torch.save(video_features, f"{args.save_path}/{video_name}.pt")

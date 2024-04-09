@@ -539,6 +539,10 @@ class Trainer(TrainerBase):
             approximate_bounds = []
             original_bounds = []
             video_duration = []
+            start_kl_loss = []
+            end_kl_loss = []
+            start_logit = []
+            end_logit = []
 
             boundary_scores = []
 
@@ -572,6 +576,10 @@ class Trainer(TrainerBase):
                         **gen_kwargs)
 
                 predictions.extend(results['prediction'])
+                start_kl_loss.extend(results['start_kl_loss'])
+                end_kl_loss.extend(results['end_kl_loss'])
+                start_logit.extend(results['start_logits'])
+                end_logit.extend(results['end_logits'])
 
                 if task == 'moment_retrieval':
                     start_end_target = torch.cat([
@@ -609,6 +617,10 @@ class Trainer(TrainerBase):
                 'tasks': tasks,
                 'prompts': prompts,
                 'predictions': predictions,
+                'start_kl_loss': start_kl_loss,
+                'end_kl_loss': end_kl_loss,
+                'start_logits': start_logit,
+                'end_logits': end_logit
             }
 
             if has_target:
@@ -648,6 +660,10 @@ class Trainer(TrainerBase):
                 video_duration = []
                 approximate_bounds = []
                 original_bounds = []
+                start_kl_loss = []
+                end_kl_loss = []
+                start_logit = []
+                end_logit = []
 
                 boundary_scores = []
 
@@ -656,6 +672,10 @@ class Trainer(TrainerBase):
                     tasks.extend(result['tasks'])
                     video_fnames.extend(result['video_fnames'])
                     prompts.extend(result['prompts'])
+                    start_kl_loss.extend(result['start_kl_loss'])
+                    end_kl_loss.extend(result['end_kl_loss'])
+                    start_logit.extend(result['start_logits'])
+                    end_logit.extend(result['end_logits'])
 
                     video_duration.extend(result['video_duration'])
 
@@ -663,6 +683,11 @@ class Trainer(TrainerBase):
                         boundary_scores.extend(result['boundary_scores'])
 
                 results['predictions'] = predictions
+                results['start_kl_loss'] = start_kl_loss
+                results['end_kl_loss'] = end_kl_loss
+                results['start_logits'] = start_logit
+                results['end_logits'] = end_logit
+
                 results['tasks'] = tasks
                 results['video_fnames'] = video_fnames
                 results['prompts'] = prompts
@@ -690,6 +715,7 @@ class Trainer(TrainerBase):
             assert len(results['tasks']) == len(results['video_fnames']) == len(results['prompts']) \
                 , f"len(tasks)={len(results['tasks'])}, len(video_fnames)={len(results['video_fnames'])}, len(prompts)={len(results['prompts'])}"
 
+            assert len(results['predictions']) == len(results['start_kl_loss']) == len(results['end_kl_loss']) == len(results['start_logits']) == len(results['end_logits'])
             if has_target:
                 assert len(results['predictions']) == len(results['video_fnames'])
 
@@ -726,13 +752,19 @@ class Trainer(TrainerBase):
 
                     if video_fname not in moment_retrieval_results[prompt]:
                         moment_retrieval_results[prompt][video_fname] = {}
-
+                    #print(results)
                     raw_prediction = results['predictions'][i]
                     assert len(raw_prediction) == 2
                     start = frame_index_to_timestamp(raw_prediction[0], results['video_duration'][i], n_frames=self.args.n_model_frames)
                     end = frame_index_to_timestamp(raw_prediction[1], results['video_duration'][i], n_frames=self.args.n_model_frames)
+                    start_kl_loss = results['start_kl_loss'][i]
+                    end_kl_loss = results['end_kl_loss'][i]
+                    start_logit = results['start_logits'][i]
+                    end_logit = results['end_logits'][i]
 
                     moment_retrieval_results[prompt][video_fname]['bounds'] = [start, end]
+                    moment_retrieval_results[prompt][video_fname]['kl_loss'] = [start_kl_loss, end_kl_loss]
+                    moment_retrieval_results[prompt][video_fname]['logits'] = [start_logit, end_logit]
 
                     video_duration = results['video_duration'][i]
                     moment_retrieval_results[prompt][video_fname]['video_duration'] = video_duration

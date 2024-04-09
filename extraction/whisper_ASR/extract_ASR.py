@@ -4,8 +4,7 @@ import numpy as np
 from pathlib import Path
 import argparse
 from tqdm import tqdm
-
-
+import os
 
 if __name__ == '__main__':
 
@@ -20,15 +19,15 @@ if __name__ == '__main__':
     audio_dir = Path(args.audio_dir)
     ASR_dir = Path(args.asr_dir)
 
-
+    if not os.path.exists(ASR_dir):
+        os.makedirs(ASR_dir)
     # Model = 'small.en' #@param ['tiny.en', 'tiny', 'base.en', 'base', 'small.en', 'small', 'medium.en', 'medium', 'large']
     # Model = 'large.en' #@param ['tiny.en', 'tiny', 'base.en', 'base', 'small.en', 'small', 'medium.en', 'medium', 'large']
 
     Model = args.model
 
-    whisper_model = whisper.load_model(Model)
-
-    whisper_model = whisper_model.to('cuda')
+    whisper_model = whisper.load_model(Model, device='cuda:1')
+    #whisper_model = whisper_model.to('cuda:1')
     whisper_model.eval()
     print('Model loaded: ', Model, "at device", whisper_model.device)
 

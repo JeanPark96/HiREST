@@ -5,6 +5,7 @@ import srt
 import torch
 from sentence_transformers import SentenceTransformer
 import clip
+import os
 
 if __name__ == '__main__':
 
@@ -28,6 +29,9 @@ if __name__ == '__main__':
     
     ASR_feats_dir = Path(f'{args.save_dir}')
 
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir)
+
     device = 'cuda'
 
     model = model.eval()
@@ -41,10 +45,15 @@ if __name__ == '__main__':
     ASR_paths = all_ASR_paths
 
     for asr_path in tqdm(ASR_paths):
+        feat_path = ASR_feats_dir / (asr_path.stem + '.pt')
+
+        # if os.path.exists(feat_path):
+        #     continue
 
         with open(asr_path, 'r') as f:
             transcript_srt_str = f.read()
-
+        if transcript_srt_str == "":
+            continue
         all_subs = []
         for sub in srt.parse(transcript_srt_str):
             all_subs.append(sub.content)
@@ -52,8 +61,9 @@ if __name__ == '__main__':
         with torch.no_grad():
             if 'sentence-transformers' in args.model:
                 sub_embeddings = model.encode(all_subs, convert_to_tensor=True)
+                print(sub_embeddings.shape)
             else:
                 sub_embeddings = model.encode_text(clip.tokenize(all_subs, truncate=True).to(device)).float()
 
-        feat_path = ASR_feats_dir / (asr_path.stem + '.pt')
+        
         torch.save(sub_embeddings.cpu(), feat_path)

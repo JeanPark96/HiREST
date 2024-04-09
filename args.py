@@ -69,4 +69,6 @@ def get_parser():
     parser.add_argument('--save_feats', action='store_true',
                         help='save video features to disk')
 
+    # loss function
+    parser.add_argument('--loss_func', type=str, default='bce')
     return parser

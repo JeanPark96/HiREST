@@ -27,6 +27,7 @@ class MomentModel(nn.Module):
         
         self.asr_dim = asr_dim
         self.use_asr = asr_dim > 0
+        self.loss_func = args.loss_func
         if self.use_asr:
             self.asr_enc_layer = nn.Sequential(
                 nn.LayerNorm(asr_dim),
@@ -122,7 +123,49 @@ class MomentModel(nn.Module):
 
         self.freeze_clip()
 
+    def calculate_kl_divergence(self, predictions, soft_labels, epsilon=1e-12):
+        # Ensure predictions are probabilities (apply softmax)
+        predictions_softmax = F.softmax(predictions, dim=1)
+        
+        # Ensure numerical stability for log operation
+        predictions_softmax = torch.clamp(predictions_softmax, epsilon, 1. - epsilon)
+        soft_labels = torch.clamp(soft_labels, epsilon, 1. - epsilon)
+        
+        # Calculate KL Divergence for each example in the batch without reduction
+        kl_div = F.kl_div(predictions_softmax.log(), soft_labels, reduction='none')
+        
+        # Sum over classes for each example to get individual KL Divergence values
+        kl_div_per_example = kl_div.sum(dim=1)
+        
+        return kl_div_per_example
 
+    def generate_soft_labels_batch(self, mu_list, lengths, max_length, device, sigma=5):
+        """
+        Generate soft labels for a batch of data with varying lengths.
+        
+        :param mu_list: A tensor of shape (batch_size,) containing the mu (center) for each example in the batch.
+        :param lengths: A tensor of shape (batch_size,) containing the effective length for each example in the batch.
+        :param max_length: The maximum length to use for padding.
+        :param sigma: The standard deviation of the Gaussian used to generate labels.
+        :return: A tensor of shape (batch_size, max_length) containing the soft labels for each example in the batch, with values outside each example's length set to 0.
+        """
+        # Create a range tensor of shape (max_length,) 
+        range_tensor = torch.arange(max_length, dtype=mu_list.dtype, device=device)
+        
+        # Expand mu_list and range_tensor to shape (batch_size, max_length) for broadcasting
+        mu_list = mu_list.unsqueeze(1).expand(-1, max_length).to(device)
+        range_tensor = range_tensor.expand(mu_list.size(0), -1).to(device)
+        
+        # Calculate soft labels using the Gaussian formula, applied element-wise
+        soft_labels = torch.exp(-((range_tensor - mu_list) ** 2) / (2 * sigma ** 2))
+        
+        # Create a mask for each example based on its length
+        mask = (range_tensor < lengths.unsqueeze(1)).float()
+        
+        # Apply the mask to suppress values outside the effective length of each example
+        soft_labels = soft_labels * mask
+        
+        return soft_labels
     def freeze_clip(self):
         for param in self.clip_model.parameters():
             param.requires_grad = False
@@ -165,9 +208,10 @@ class MomentModel(nn.Module):
         feats = video_feats * text_feat.unsqueeze(1)
         
         if self.use_asr:
+            #print(asr_feats.shape)
             asr_feats = self.asr_enc_layer(asr_feats)
             feats += asr_feats
-
+        #print(video_feats.shape, text_feat.shape, feats.shape, asr_feats.shape)
         if boundary_mask is not None:
             boundary_emb = self.boundary_embed(boundary_mask)
             feats += boundary_emb
@@ -216,10 +260,10 @@ class MomentModel(nn.Module):
         B, max_n_frames, embed_dim = video_feats.size()
 
         feats = self.foward_moment_shared(video_feats, text_feat, video_mask, moment_mask=moment_mask, asr_feats=asr_feats)
-
+        #print(feats.size())
         start_logits = self.start_predictor(feats).squeeze(2)
         end_logits = self.end_predictor(feats).squeeze(2)
-
+        
         return {
             'start_logits': start_logits,
             'end_logits': end_logits,
@@ -234,6 +278,8 @@ class MomentModel(nn.Module):
 
         start_target = batch['moment_retrieval_start_target'].to(device)
         end_target = batch['moment_retrieval_end_target'].to(device)
+
+        vid_length = torch.tensor(batch['video_duration']).to(device)
 
         asr_feats = None
         if self.use_asr:
@@ -251,20 +297,58 @@ class MomentModel(nn.Module):
         _start_target = torch.zeros(start_logits.size(), device=start_logits.device)
         _end_target = torch.zeros(end_logits.size(), device=end_logits.device)
 
-        _start_target.scatter_(1, start_target.unsqueeze(1), 1)
-        _end_target.scatter_(1, end_target.unsqueeze(1), 1)
+        
+        # print("start", start_logits)
+        # print(len(start_logits))
+        # print("target start",_start_target)
+        if self.loss_func == None or self.loss_func == "bce":
+            _start_target.scatter_(1, start_target.unsqueeze(1), 1)
+            _end_target.scatter_(1, end_target.unsqueeze(1), 1)
 
-        start_loss = F.binary_cross_entropy_with_logits(start_logits, _start_target, reduction='none')
-        end_loss = F.binary_cross_entropy_with_logits(end_logits, _end_target, reduction='none')
+            start_loss = F.binary_cross_entropy_with_logits(start_logits, _start_target, reduction='none')
+            end_loss = F.binary_cross_entropy_with_logits(end_logits, _end_target, reduction='none')
+            #print("orgloss", start_loss)
+            start_loss = start_loss * moment_mask
+            #print(start_loss)
+            end_loss = end_loss * moment_mask
 
-        start_loss = start_loss * moment_mask
-        end_loss = end_loss * moment_mask
+            start_loss = start_loss.sum() / moment_mask.sum().clamp(min=1)
+            end_loss = end_loss.sum() / moment_mask.sum().clamp(min=1)
 
-        start_loss = start_loss.sum() / moment_mask.sum().clamp(min=1)
-        end_loss = end_loss.sum() / moment_mask.sum().clamp(min=1)
+            loss = (start_loss + end_loss) / 2
+        elif self.loss_func == "kl_div":
+            print("kl div")
+            start_logits_sftmx = F.softmax(start_logits * moment_mask, dim=1)
+            end_logits_sftmx = F.softmax(end_logits * moment_mask, dim=1)
+            print(vid_length, start_target, max(vid_length))
+            start_labels = self.generate_soft_labels_batch(start_target, vid_length, max(vid_length), device)
+            end_labels = self.generate_soft_labels_batch(end_target, vid_length, max(vid_length), device)
+            
+            start_labels = (start_labels * moment_mask) / torch.sum((start_labels * moment_mask), dim=1, keepdim=True)
+            end_labels = (end_labels * moment_mask) / torch.sum((end_labels * moment_mask), dim=1, keepdim=True)
 
-        loss = (start_loss + end_loss) / 2
-
+            print(start_labels.shape)
+            start_loss = self.calculate_kl_divergence(start_logits_sftmx, start_labels)
+            print(start_loss.shape)
+            end_loss = self.calculate_kl_divergence(end_logits_sftmx, end_labels)
+            start_loss = start_loss.mean()
+            end_loss = end_loss.mean()
+            loss = (start_loss + end_loss) / 2
+        elif self.loss_func == "mse":
+            print("mse loss")
+            start_logits_sftmx = F.softmax(start_logits * moment_mask, dim=1)
+            end_logits_sftmx = F.softmax(end_logits * moment_mask, dim=1)
+            print(vid_length, start_target, max(vid_length))
+            start_labels = self.generate_soft_labels_batch(start_target, vid_length, max(vid_length), device)
+            end_labels = self.generate_soft_labels_batch(end_target, vid_length, max(vid_length), device)
+            print(start_labels.shape)
+            loss_fn = nn.MSELoss()
+            start_loss = loss_fn(start_logits_sftmx, start_labels)
+            print(start_loss)
+            end_loss = loss_fn(end_logits_sftmx, end_labels)
+            start_loss = start_loss.mean()
+            end_loss = end_loss.mean()
+            loss = (start_loss + end_loss) / 2
         result = {
             'loss': loss,
         }
@@ -292,7 +376,7 @@ class MomentModel(nn.Module):
 
         start_logits = out['start_logits']
         end_logits = out['end_logits']
-
+        
         start_logits[video_mask == 0] = -1e10
         end_logits[video_mask == 0] = -1e10
 
@@ -302,11 +386,24 @@ class MomentModel(nn.Module):
 
         pred_boundaries = torch.stack([start, end], dim=-1)
 
-        start_target = batch['moment_retrieval_start_target']
-        end_target = batch['moment_retrieval_end_target']
+        start_target = batch['moment_retrieval_start_target'].to(device)
+        end_target = batch['moment_retrieval_end_target'].to(device)
+
+        _start_target = torch.zeros(start_logits.size(), device=device)
+        _end_target = torch.zeros(end_logits.size(), device=device)
+
+        _start_target.scatter_(1, start_target.unsqueeze(1), 1)
+        _end_target.scatter_(1, end_target.unsqueeze(1), 1)
+        
+        start_loss = self.calculate_kl_divergence(start_logits, _start_target)
+        end_loss = self.calculate_kl_divergence(end_logits, _end_target)
 
         result = {
             'prediction': pred_boundaries.detach().tolist(),
+            'start_kl_loss': start_loss.detach().tolist(),
+            'end_kl_loss': end_loss.detach().tolist(),
+            'start_logits': start_logits.detach().tolist(),
+            'end_logits': end_logits.detach().tolist()
         }
 
         return result
